@@ -1,0 +1,319 @@
+---
+title: "CD8_analysis2"
+author: "pattiey"
+date: "21/10/2021"
+output: pdf_document
+---
+
+Analysis of CD8+ T cells. Much of this is borrowed from the workflow found in the paper of the original dataset (Carmona et al.) found here https://gitlab.unil.ch/carmona/workflow_Carmona_etal_2019_CD8TIL_Sv3/blob/master/workflow1.Rmd 
+
+```{r results=FALSE, message=FALSE}
+library(Seurat)
+library(clusterProfiler)
+library(dplyr)
+library(tidyr)
+library(Matrix)
+library(sctransform)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(viridis)
+library(ComplexHeatmap)
+library(circlize)
+library(goseq)
+```
+
+```{r}
+source("cd8_analysis.R")
+```
+
+Read sparse matrix
+
+```{r}
+fname <- "input/B16_data"
+data <- Read10X(fname)
+(data.seurat <- CreateSeuratObject(counts = data, 
+                                   project = "B16CD8",
+                                   min.cells = 3, 
+                                   min.features = 50))
+```
+
+Determine proportion of mitochondrial and ribosomal genes
+```{r}
+data.seurat[["percent.mito"]] <- PercentageFeatureSet(data.seurat, pattern = "^mt-")
+data.seurat[["percent.ribo"]] <- PercentageFeatureSet(data.seurat, pattern = "^Rp[ls]")
+```
+
+```{r}
+sampleIDs <- qq(PMEL1, WT1, WT3, PMEL3, PMEL2, WT2, WT4)
+names(sampleIDs) <- 1:7
+```
+
+```{r}
+data.seurat[["Sample"]] <- factor(substring(rownames(data.seurat@meta.data), 18))
+data.seurat[["SampleLabel"]] <- factor(sampleIDs[data.seurat@meta.data$Sample])
+```
+
+Normalize UMI count data with SCTransform
+
+```{r message=FALSE, results=FALSE, warning=FALSE, include=FALSE}
+data.seurat <- SCTransform(data.seurat, variable.features.n=10000, verbose = FALSE)
+```
+
+Run PCA 
+
+```{r}
+set.seed(123)
+DefaultAssay(object = data.seurat) <- "SCT"
+data.seurat <- RunPCA(data.seurat, ndims.print = 1:5, nfeatures.print = 10)
+```
+
+Remove cell cycle (excluding our genes of interest), ribosomal, and mitochondrial genes from genes used for dimensionality reduction.
+```{r}
+cellCycle.genes <- read.csv("cellCycleGenes.csv", as.is = T)$x
+mito.genes <- grep(pattern = "^mt-", x = rownames(x = data.seurat@assays$RNA@data), value = TRUE)
+ribo.genes <- grep(pattern = "^Rp[ls]", x = rownames(x = data.seurat@assays$RNA@data), value = TRUE)
+```
+
+```{r}
+length(data.seurat@assays$SCT@var.features)
+data.seurat@assays$SCT@var.features <-
+  data.seurat@assays$SCT@var.features[!data.seurat@assays$SCT@var.features %in% 
+                                        c(mito.genes,ribo.genes, cellCycle.genes)]
+length(data.seurat@assays$SCT@var.features)
+```
+
+Run dimensionality reduction with mitochondrial and ribosomal genes removed
+
+```{r}
+data.seurat <- dim_reductions(data.seurat, seed = 123)
+```
+
+PCA coloured by the 5 genes of interest
+
+```{r}
+genes_of_interest <- c("Tcf7","Atf4", "Ddit3", "Ifng", "Slc2a1")
+FeaturePlot(data.seurat,features=genes_of_interest,reduction="pca") 
+FeaturePlot(data.seurat, features=genes_of_interest, dims = c(5,4), reduction = "pca")
+```
+
+Use KNN to find neighbours on PCA dimensions
+
+```{r}
+set.seed(123)
+data.seurat <- FindNeighbors(data.seurat, reduction = "pca", dims = 1:10,k.param = 30)
+set.seed(123)
+data.seurat  <- FindClusters(data.seurat, resolution = 0.3)
+```
+
+Add original inferred cell state clustering to meta data
+```{r}
+pre.clusters <- read.csv("cellClusters.csv")
+pre.clusters.meta <- pre.clusters[match(colnames(data.seurat),pre.clusters$X),2]
+names(pre.clusters.meta) <- colnames(data.seurat)
+pre.clusters.meta <- factor(pre.clusters.meta,levels=c("Naive","EM-like","MemoryLike","Exhausted"))
+data.seurat <- AddMetaData(data.seurat,pre.clusters.meta,"original_clusters")
+```
+
+UMAP plot coloured by pca clusters and the original clusters
+```{r}
+clusterColors <- c("#F8766D","#A58AFF","#00B6EB","#53B400","#E8E8E8")
+names(clusterColors) <- c("Naive","EM-like","MemoryLike","Exhausted","Cycling") 
+side_by_side_cluster_plot(data.seurat, 
+                          reduction = "umap", 
+                          group.by1 = "original_clusters", 
+                          group.by2 = "seurat_clusters",
+                          clusterColors = clusterColors)
+```
+
+tSNE plot coloured by pca clusters and the original clusters
+
+```{r}
+side_by_side_cluster_plot(data.seurat, 
+                          reduction = "tsne", 
+                          group.by1 = "original_clusters", 
+                          group.by2 = "seurat_clusters", 
+                          clusterColors = clusterColors)
+```
+
+Cluster based on UMAP dimensions
+
+```{r}
+set.seed(123)
+data.seurat <- FindNeighbors(data.seurat, reduction = "umap", dims = 1:2, k.param = 30)
+set.seed(123)
+data.seurat  <- FindClusters(data.seurat, resolution = 0.08)
+```
+
+UMAP plot coloured by UMAP clusters and the original clusters
+```{r}
+side_by_side_cluster_plot(data.seurat, 
+                          reduction = "umap", 
+                          group.by1 = "original_clusters",
+                          group.by2 = "seurat_clusters", 
+                          clusterColors = clusterColors)
+```
+
+tSNE plot coloured by UMAP clusters and the original clusters
+```{r}
+side_by_side_cluster_plot(data.seurat, 
+                          reduction = "tsne", 
+                          group.by1 = "original_clusters",
+                          group.by2 = "seurat_clusters", 
+                          clusterColors = clusterColors)
+```
+
+```{r}
+FeaturePlot(data.seurat,features=genes_of_interest,reduction="tsne") 
+```
+
+```{r}
+FeaturePlot(data.seurat,features=genes_of_interest,reduction="umap") 
+```
+
+```{r}
+DoHeatmap(data.seurat, features = genes_of_interest, group.by = "original_clusters", raster = FALSE) + scale_fill_viridis(option = "magma")
+```
+
+```{r}
+DoHeatmap(data.seurat, features = genes_of_interest, group.by = "seurat_clusters", raster = FALSE) + scale_fill_viridis(option = "magma")
+```
+
+Now look only at subsets of cells by inferred cell state. To maintain consistency, I'll use the inferred cell states given by `original_clusters`, even if the UMAP clustering may be more accurate. 
+
+```{r}
+Idents(data.seurat) <- "original_clusters"
+```
+
+### Naive
+
+```{r warning=FALSE}
+naive <- subset_setup(data.seurat, idents = "Naive")
+naive <- dim_reductions(naive, seed = 123)
+```
+
+```{r}
+FeaturePlot(naive, features = genes_of_interest, reduction = "pca") 
+```
+
+```{r}
+FeaturePlot(naive, features = genes_of_interest, reduction = "umap") 
+```
+
+```{r warning=FALSE}
+naive_correlations <- subset_correlations(naive, genes_of_interest)
+```
+
+```{r}
+naive_highly_correlated <- subset_highly_correlated(naive_correlations, genes_of_interest, n_to_pull = 100)
+Heatmap(naive_highly_correlated, show_row_names = FALSE)
+heatmap_correlated_genes(naive, naive_highly_correlated)
+```
+
+### EM-like
+
+```{r warning=FALSE}
+em_like <- subset_setup(data.seurat, idents = "EM-like")
+em_like <- dim_reductions(em_like, seed = 123)
+```
+
+```{r}
+FeaturePlot(em_like, features = genes_of_interest, reduction = "pca") 
+```
+
+```{r}
+FeaturePlot(em_like, features = genes_of_interest, reduction = "umap") 
+```
+
+```{r warning=FALSE}
+em_correlations <- subset_correlations(em_like, genes_of_interest)
+```
+
+```{r}
+em_highly_correlated <- subset_highly_correlated(em_correlations, genes_of_interest, n_to_pull = 100)
+Heatmap(em_highly_correlated)
+heatmap_correlated_genes(em_like, em_highly_correlated)
+```
+
+### Memory-like
+
+```{r warning=FALSE}
+memory_like <- subset_setup(data.seurat, idents = "MemoryLike")
+memory_like <- dim_reductions(memory_like, seed = 123)
+```
+
+```{r}
+FeaturePlot(memory_like, features = genes_of_interest, reduction = "pca") 
+```
+
+```{r}
+FeaturePlot(memory_like, features = genes_of_interest, reduction = "umap") 
+```
+
+```{r warning=FALSE}
+memory_correlations <- subset_correlations(memory_like, genes_of_interest)
+```
+
+```{r}
+memory_highly_correlated <- subset_highly_correlated(memory_correlations, genes_of_interest, n_to_pull = 100)
+Heatmap(memory_highly_correlated)
+heatmap_correlated_genes(memory_like, memory_highly_correlated)
+```
+
+### Exhausted
+
+```{r warning=FALSE}
+exhausted <- subset_setup(data.seurat, idents = "Exhausted")
+exhausted <- dim_reductions(exhausted, seed = 123)
+```
+
+```{r}
+FeaturePlot(exhausted, features = genes_of_interest, reduction = "pca") 
+```
+
+```{r}
+FeaturePlot(exhausted, features = genes_of_interest, reduction = "umap") 
+```
+
+```{r warning=FALSE}
+exhausted_correlations <- subset_correlations(exhausted, genes_of_interest)
+```
+
+```{r}
+exhausted_highly_correlated <- subset_highly_correlated(exhausted_correlations, genes_of_interest, n_to_pull = 100)
+Heatmap(exhausted_highly_correlated)
+heatmap_correlated_genes(exhausted, exhausted_highly_correlated)
+```
+
+
+## Alternative clustering?
+
+See if any different patterns emerge if UMAP clustering is used over the original given clustering.
+
+```{r}
+Idents(data.seurat) <- "seurat_clusters"
+```
+
+### Naive
+
+```{r}
+umap_naive <- subset(data.seurat, idents = 1)
+```
+
+### EM like
+
+```{r}
+umap_em <- subset(data.seurat, idents = 0)
+```
+
+### Memory like
+
+```{r}
+umap_memory <- subset(data.seurat, idents = 3)
+```
+
+### Exhausted
+
+```{r}
+umap_exhausted <- subset(data.seurat, idents = 2)
+```

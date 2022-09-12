@@ -1,0 +1,124 @@
+---
+title: "CD8 T"
+author: "pattiey"
+date: "13/10/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r message=FALSE}
+library(ggplot2)
+library(tidyverse)
+library(Seurat)
+library(Matrix)
+library(SingleCellExperiment)
+library(DropletUtils)
+library(reshape2)
+library(ComplexHeatmap)
+library(circlize)
+```
+
+## Single-cell RNA-seq of sorted CD8+ T cells from B16 melanoma tumors
+
+Processed and filtered scRNA-seq data from NCBI GEO accession GSE116390.
+Filtered dataset contains 3574 cells filtered based on expression of CD8 T cell markers (Cd8a, Cd8b1, Cd2, not Cd4)
+
+Read sparse matrix
+
+```{r message=FALSE}
+b16_matrix <- Matrix::readMM("input/B16_data/matrix.mtx")
+b16_genes <- read.table("input/B16_data/genes.tsv", sep = "\t")
+```
+
+Starting with looking at specific genes of interest
+
+```{r message=FALSE}
+#genes_of_interest <-c("Tcf7", "Atf4", "Ddit3", "Ifng", "Slc2a1", "Mapk14", "Mapk11", "Mapk12", "Mapk13")
+genes_of_interest <-c("Tcf7", "Atf4", "Ddit3", "Ifng", "Slc2a1")
+```
+
+Filter out genes of interest from the B16 dataset
+
+```{r message=FALSE}
+b16_indices <- b16_genes %>% mutate(i = 1:n()) %>% filter(V1 %in% genes_of_interest) %>% pull(i)
+b16_gene_expression <- b16_matrix %>% as.matrix() %>% t() %>% as_tibble() %>% 
+  select(b16_indices)
+names(b16_gene_expression) <- genes_of_interest
+```
+
+LogNormalize gene_expressions, remove rows where all values are 0
+
+```{r message=FALSE}
+b16_gene_expression <- b16_gene_expression %>% LogNormalize() %>% as_tibble()
+b16_gene_expression <- b16_gene_expression %>% filter_all(any_vars(. != 0))
+```
+
+Distribution of expression for each TF
+
+```{r}
+b16_gene_expression %>% melt() %>% ggplot(aes(value)) + geom_histogram() + facet_wrap(~ variable) + scale_y_continuous(trans = "log2")
+```
+
+Heatmap (default settings)
+
+```{r message=FALSE}
+#f1 <- colorRamp2(c(0, 0.1, 1, 4, 10), c("grey", "blue", "#EEEEEE", "red", "black"))
+f1 <- colorRamp2(seq(min(b16_gene_expression), max(b16_gene_expression), length = 3), c("blue", "#EEEEEE", "red"))
+h1 <- Heatmap(as.matrix(b16_gene_expression), name = "B16", col = f1)
+draw(h1)
+```
+
+## Single cell RNA-seq profiling of T cells isolated from MC38 mouse tumors
+
+Processed scRNA-seq data from EMBL-EBI accession E-MTAB-7919
+
+Read sparse matrix
+
+```{r message=FALSE}
+mc38_matrix <- Matrix::readMM("input/MC38_data/matrix.mtx")
+mc38_genes <- read.table("input/MC38_data/genes.tsv", sep = "\t")
+```
+
+Filter out genes of interest
+
+```{r message=FALSE}
+mc38_indices <- mc38_genes %>% 
+  mutate(i = 1:n()) %>% 
+  filter(V2 %in% genes_of_interest) %>% 
+  pull(i)
+mc38_gene_expression <- mc38_matrix %>% 
+  as.matrix() %>% 
+  t() %>% 
+  as_tibble() %>%
+  select(mc38_indices)
+names(mc38_gene_expression) <- genes_of_interest
+```
+
+LogNormalize gene_expressions, remove rows where all values are 0
+
+```{r message=FALSE}
+mc38_gene_expression <- mc38_gene_expression %>% LogNormalize() %>% as_tibble()
+mc38_gene_expression <- mc38_gene_expression %>% filter_all(any_vars(. != 0))
+```
+
+Distribution of expression for each TF
+
+```{r}
+mc38_gene_expression %>% melt() %>% ggplot(aes(value)) + geom_histogram() + facet_wrap(~ variable) + scale_y_continuous(trans = "log2")
+```
+
+Heatmap using default settings
+
+```{r message=FALSE}
+h2 <- Heatmap(as.matrix(mc38_gene_expression), name = "MC38", col = f1)
+draw(h2)
+```
+
+Draw heatmaps from the two studies together
+```{r message=FALSE}
+draw(h1 %v% h2)
+```

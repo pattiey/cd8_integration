@@ -1,0 +1,604 @@
+---
+title: "CD8_dataset_incorporation"
+author: "pattiey"
+date: '2022-08-23'
+output: pdf_document
+---
+
+Load packages
+
+```{r results=FALSE, message=FALSE}
+library(utils)
+library(Seurat)
+library(clusterProfiler)
+library(dplyr)
+library(tidyr)
+library(Matrix)
+library(sctransform)
+library(ggplot2)
+library(ggpubr)
+library(RColorBrewer)
+library(viridis)
+library(ComplexHeatmap)
+library(circlize)
+library(goseq)
+library(GEOquery)
+library(msigdbr)
+library(fgsea)
+library(data.table)
+library(tibble)
+```
+
+Load helper functions
+
+```{r}
+source("cd8_analysis.R")
+```
+
+Load metadata from GEO
+
+```{r}
+B16_GEO <- "GSE116390"
+B16_eset <- getGEO(B16_GEO)[[1]]
+
+met_cond_GEO <- "GSE152018"
+met_cond_eset <- getGEO(met_cond_GEO)[[1]]
+pData(met_cond_eset) <- pData(met_cond_eset) %>% mutate(SampleLabel = ifelse(`treatment:ch1` == "Control (11mM glucose)", "Control", "TGR"))
+```
+
+Load aggregated matrix for B16s into Seurat object
+
+```{r}
+if (file.exists(file.path("Data", B16_GEO, paste0(B16_GEO, "_aggregated"))) == FALSE) {
+  getGEOSuppFiles(B16_GEO, makeDirectory = TRUE, baseDir = "Data", fetch_files = TRUE)
+  untar(file.path("Data", B16_GEO, paste0(B16_GEO, "_aggregated_filtered_matrix.tar.gz")), 
+      list=FALSE, 
+      exdir = file.path("Data", B16_GEO, paste0(B16_GEO, "_aggregated")))
+}
+
+B16.counts <- Read10X(file.path("Data", B16_GEO, paste0(B16_GEO, "_aggregated")))
+(B16.seurat <- CreateSeuratObject(counts = B16.counts, 
+                                   project = "B16CD8",
+                                   min.cells = 3,
+                                   min.features = 200))
+sampleIDs <- qq(PMEL1_S1, WT1_S2, WT3_S3, PMEL3_S1, PMEL2_S1, WT2_S2, WT4_S3)
+names(sampleIDs) <- 1:7
+B16.seurat[["Sample"]] <- factor(substring(rownames(B16.seurat@meta.data), 18))
+B16.seurat[["SampleLabel"]] <- factor(sampleIDs[B16.seurat@meta.data$Sample])
+# B16.seurat@meta.data <- left_join(B16.seurat@meta.data, pData(B16_eset), by = c("SampleLabel" = "description"))
+```
+
+Load matrix for metabolically conditioned dataset
+
+```{r}
+if (file.exists(file.path("Data", met_cond_GEO, paste0(met_cond_GEO, "_RAW"))) == FALSE){
+  getGEOSuppFiles(met_cond_GEO, makeDirectory = TRUE, baseDir = "Data", fetch_files = TRUE)
+  untar(file.path("Data", met_cond_GEO, paste0(met_cond_GEO, "_RAW.tar")), 
+        list = FALSE,
+        exdir = met_cond_dir)
+}
+
+met_cond_dir <- file.path("Data", met_cond_GEO, paste0(met_cond_GEO, "_RAW"))
+
+dir.create(file.path(met_cond_dir, "CD8_hi"))
+dir.create(file.path(met_cond_dir, "CD8_lo"))
+
+file.rename(from = file.path(met_cond_dir, "GSM4598789_CD8_hi_barcodes.tsv.gz"), to = file.path(met_cond_dir, "CD8_hi", "barcodes.tsv.gz"))
+file.rename(from = file.path(met_cond_dir, "GSM4598789_CD8_hi_genes.tsv.gz"), to = file.path(met_cond_dir, "CD8_hi", "features.tsv.gz"))
+file.rename(from = file.path(met_cond_dir, "GSM4598789_CD8_hi_matrix.mtx.gz"), to = file.path(met_cond_dir, "CD8_hi", "matrix.mtx.gz"))
+
+file.rename(from = file.path(met_cond_dir, "GSM4598790_CD8_lo_barcodes.tsv.gz"), to = file.path(met_cond_dir, "CD8_lo", "barcodes.tsv.gz"))
+file.rename(from = file.path(met_cond_dir, "GSM4598790_CD8_lo_genes.tsv.gz"), to = file.path(met_cond_dir, "CD8_lo", "features.tsv.gz"))
+file.rename(from = file.path(met_cond_dir, "GSM4598790_CD8_lo_matrix.mtx.gz"), to = file.path(met_cond_dir, "CD8_lo", "matrix.mtx.gz"))
+```
+
+```{r}
+CD8_hi.counts <- Read10X(file.path(met_cond_dir, "CD8_hi"))
+CD8_lo.counts <- Read10X(file.path(met_cond_dir, "CD8_lo"))
+
+(CD8_hi.seurat <- CreateSeuratObject(counts = CD8_hi.counts, 
+                                     project = "met_cond",
+                                     min.cells = 3,
+                                     min.features = 200))
+
+CD8_hi.seurat[["SampleLabel"]] <- "Control"
+
+# CD8_hi.seurat@meta.data <- left_join(CD8_hi.seurat@meta.data, pData(met_cond_eset))
+
+(CD8_lo.seurat <- CreateSeuratObject(counts = CD8_lo.counts, 
+                                     project = "met_cond",
+                                     min.cells = 3,
+                                     min.features = 200))
+
+CD8_lo.seurat[["SampleLabel"]] <- "TGR"
+
+# CD8_lo.seurat@meta.data <- left_join(CD8_lo.seurat@meta.data, pData(met_cond_eset))
+```
+
+Normalize and find variable features independently
+
+```{r message=FALSE, results=FALSE, warning=FALSE, include=FALSE}
+CD8_hi.seurat <- NormalizeData(CD8_hi.seurat)
+CD8_hi.seurat <- FindVariableFeatures(CD8_hi.seurat, selection.method = "vst", nfeatures = 10000)
+(top10 <- head(VariableFeatures(CD8_hi.seurat), 10))
+
+CD8_lo.seurat <- NormalizeData(CD8_lo.seurat)
+CD8_lo.seurat <- FindVariableFeatures(CD8_lo.seurat, selection.method = "vst", nfeatures = 10000)
+(top10 <- head(VariableFeatures(CD8_lo.seurat), 10))
+```
+
+integrate CD8_hi and CD8_lo cells
+
+```{r}
+data.list <- c(CD8_hi.seurat, CD8_lo.seurat)
+features <- SelectIntegrationFeatures(object.list = data.list, nfeatures = 10000)
+
+anchors <- FindIntegrationAnchors(data.list, anchor.features = features)
+
+met_cond.seurat <- IntegrateData(anchorset = anchors)
+DefaultAssay(met_cond.seurat) <- "RNA"
+```
+
+percentage of ribosomal and mitochondrial genes per cell
+```{r}
+met_cond.seurat[["percent.mito"]] <- PercentageFeatureSet(met_cond.seurat, pattern = "^mt-")
+met_cond.seurat[["percent.ribo"]] <- PercentageFeatureSet(met_cond.seurat, pattern = "^Rp[ls]")
+```
+
+```{r}
+Idents(met_cond.seurat) <- met_cond.seurat$SampleLabel
+my_cols <- c("#000000", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#0072B2", "#D55E00", "#CC79A7", "#33FF99")
+VlnPlot(met_cond.seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo"), ncol = 4, pt.size = 0.1, cols = alpha(my_cols, 0.25))
+```
+
+```{r}
+FeatureScatter(met_cond.seurat, feature1 = "nCount_RNA", feature2 = "percent.mito", cols = alpha(my_cols, 0.25))
+```
+```{r}
+FeatureScatter(met_cond.seurat, feature1 = "nCount_RNA", feature2 = "nFeature_RNA", cols = alpha(my_cols, 0.25))
+```
+```{r}
+FeatureScatter(met_cond.seurat, feature1 = "nCount_RNA", feature2 = "percent.ribo", cols = alpha(my_cols, 0.25))
+```
+```{r}
+FeatureScatter(met_cond.seurat, feature1 = "percent.mito", feature2 = "percent.ribo", cols = alpha(my_cols, 0.25))
+```
+
+Filter cells with high mito
+```{r}
+met_cond.seurat <- subset(met_cond.seurat, subset = percent.mito < 10)
+VlnPlot(met_cond.seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo", cols = alpha(my_cols, 0.25)), ncol = 4, pt.size = 0.1)
+```
+
+Remove mitochondial and ribosomal genes
+
+```{r}
+mito.genes <- grep(pattern = "^mt-", x = rownames(x = met_cond.seurat@assays$RNA@data), value = TRUE)
+ribo.genes <- grep(pattern = "^Rp[ls]", x = rownames(x = met_cond.seurat@assays$RNA@data), value = TRUE)
+```
+
+```{r}
+DefaultAssay(met_cond.seurat) <- "integrated"
+met_cond.seurat <- FindVariableFeatures(met_cond.seurat, selection.method = "vst", nfeatures = 7500)
+(top10 <- head(VariableFeatures(met_cond.seurat), 10))
+length(met_cond.seurat@assays$integrated@var.features)
+met_cond.seurat@assays$integrated@var.features <-
+  met_cond.seurat@assays$integrated@var.features[!met_cond.seurat@assays$integrated@var.features %in% 
+                                        c(mito.genes,ribo.genes)]
+length(met_cond.seurat@assays$integrated@var.features)
+(top10 <- head(VariableFeatures(met_cond.seurat), 10))
+LabelPoints(plot = VariableFeaturePlot(met_cond.seurat), points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
+```
+
+Scale data
+```{r}
+met_cond.seurat <- ScaleData(met_cond.seurat, assay = "integrated")
+```
+
+Run PCA and dimensionality reduction
+
+```{r}
+set.seed(123)
+met_cond.seurat <- dim_reductions(met_cond.seurat)
+VizDimLoadings(met_cond.seurat, dims = 1:9, reduction = "pca") + theme(axis.text = element_text(size=5),
+                                                                       axis.title = element_text(size=8, face="bold"))
+
+mat <- GetAssayData(met_cond.seurat, assay = "integrated", slot = "scale.data")
+pca <- met_cond.seurat[["pca"]]
+
+total_var <- sum(matrixStats::rowVars(mat))
+eigValues = (pca@stdev)^2
+(varExplained <- eigValues / total_var)
+ElbowPlot(met_cond.seurat)
+
+DimHeatmap(met_cond.seurat, dims = 1:6, nfeatures = 20, cells = 500, balanced = TRUE)
+```
+
+```{r}
+DimPlot(met_cond.seurat, reduction = "pca", group.by = "SampleLabel", dims = c(1,2), cols = alpha(my_cols, 0.5))
+```
+
+UMAP
+
+```{r}
+DimPlot(met_cond.seurat, reduction = "umap", group.by = "SampleLabel", dims = c(1,2),  cols = alpha(my_cols, .75))
+```
+DEGs identified in nature metabolism paper
+```{r}
+genes_of_interest <- c("Tcf7","Atf4", "Ddit3", "Ifng", "Slc2a1")
+
+FeaturePlot(met_cond.seurat, features = c("2810417H13Rik", "Ranbp1", "Npc2", "Btg1"), reduction = "umap", cols = alpha(c("blue", "red"), 0.5))
+
+FeaturePlot(met_cond.seurat, features = genes_of_interest, reduction = "umap", cols = alpha(c("blue", "red"), 0.25))
+met_cond.seurat %>% subset(subset = SampleLabel == "Control") %>% FeaturePlot(features = genes_of_interest, reduction = "umap", cols =alpha(c("blue", "red"), 0.25))
+met_cond.seurat %>% subset(subset = SampleLabel == "TGR") %>% FeaturePlot(features = genes_of_interest, reduction = "umap", cols = alpha(c("blue", "red"), 0.25))
+```
+
+```{r}
+DoHeatmap(met_cond.seurat, features = genes_of_interest, group.by = "SampleLabel", raster=FALSE)
+```
+
+# TODO
+DEA on metabolically conditioned cells
+
+```{r}
+TGR.de.markers <- FindMarkers(met_cond.seurat, ident.1 = "Control", ident.2 = "TGR")
+TGR.de.markers %>% filter(p_val_adj < 0.05) %>% arrange(desc(abs(avg_log2FC))) %>% head(20)
+TGR.deg <- TGR.de.markers %>% filter(p_val_adj < 0.05)
+```
+
+```{r}
+FeaturePlot(met_cond.seurat, features = c("Cenpa", "Mt2", "2810417H13Rik"), cols = alpha(c("blue", "red"), 0.25), reduction = "umap")
+met_cond.seurat %>% subset(subset = SampleLabel == "Control") %>%  FeaturePlot(features = c("Cenpa", "Mt2", "2810417H13Rik"), cols = alpha(c("blue", "red"), 0.25), reduction = "umap")
+met_cond.seurat %>% subset(subset = SampleLabel == "TGR") %>%  FeaturePlot(features = c("Cenpa", "Mt2", "2810417H13Rik"), cols = alpha(c("blue", "red"), 0.25), reduction = "umap")
+```
+
+Hypergeometric GSEA
+
+```{r include=FALSE}
+run.hyper.test <- function(gene.dt, geneset.dt, seurat.obj, cutoff = 0.05) {
+
+    .genes <- gene.dt %>%
+      rownames_to_column(var = "gene_symbol") %>% 
+      select(gene_symbol, p_val_adj)
+    .sets <- as.data.table(geneset.dt)
+    .sets <- .sets[gene_symbol %in% rownames(seurat.obj),
+                   .(gene_symbol, gs_name)]
+
+    .dt <- left_join(.sets, .genes, by = "gene_symbol") %>% 
+        as.data.table()
+
+    ## Total number of genes
+    ntot <- length(unique(.dt$gene_symbol))
+    ## Total number of significant DEGs
+    nsig <- nrow(unique(.dt[p_val_adj < cutoff, .(gene_symbol)]))
+    ## Gene set size
+    gs.size <- .dt[,
+                   .(m = length(unique(gene_symbol))),
+                   by = .(gs_name)]
+    ## Gene set overlap size
+    overlap.size <- .dt[p_val_adj < cutoff,
+                        .(q = length(unique(gene_symbol))),
+                        by = .(gs_name)]
+
+    left_join(gs.size, overlap.size, by = "gs_name") %>%
+        mutate(`q` = if_else(is.na(`q`), 0, as.numeric(`q`))) %>% 
+        mutate(n = `ntot` - `m`) %>%
+        mutate(k = `nsig`) %>%
+        mutate(p.val = phyper(`q`, `m`, `n`, `k`, lower.tail=FALSE)) %>%
+        arrange(p.val) %>%
+        as.data.table
+}
+```
+
+```{r}
+KEGG.mouse.db <- msigdbr(species = "mouse", category = "C2", subcategory = "KEGG")
+```
+
+```{r}
+hyper.kegg.dt <- run.hyper.test(TGR.deg, KEGG.mouse.db, met_cond.seurat, cutoff = 0.05)
+hyper.kegg.dt %>%
+  arrange(p.val) %>%
+  filter(p.val < 0.05) %>% 
+  knitr::kable()
+```
+
+Ranked GSEA
+
+```{r}
+num.sci <- function(x) {
+    format(x, scientific=TRUE, digits = 2)
+}
+
+make.gs.lol <- function(.dt) {
+  .dt <- as.data.table(.dt) %>% unique()
+  .list <- 
+    .dt[, .(gene = .(gene_symbol)), by = .(gs_name)] %>% 
+    as.list()
+  .names <- .list$gs_name
+  .ret <- .list$gene
+  names(.ret) <- .names
+  return(.ret)
+}
+
+KEGG.lol <- KEGG.mouse.db %>% select(gene_symbol, gs_name) %>% make.gs.lol()
+```
+
+```{r}
+ggplot(TGR.de.markers, aes(1:nrow(TGR.de.markers), -log10(p_val_adj))) + 
+  geom_point(stroke = 0) + 
+  geom_hline(yintercept = 4, lty = 2, colour = "red") + 
+  geom_hline(yintercept = 32, lty = 2, colour = "green") +
+  geom_hline(yintercept = 64, lty = 2, colour = "blue") + 
+  scale_y_continuous("adjusted p-val", breaks = c(4,32,64), 
+                     labels = function(x) num.sci(10^(-x)))
+```
+
+```{r}
+deg.scores <- TGR.de.markers %>%
+  mutate(adj_p_val = p_val_adj + 1e-300) %>% 
+  mutate(v = -log10(adj_p_val)) %>% 
+  (function(.dt) {v <- .dt$v; names(v) <- rownames(.dt); v})
+```
+
+```{r}
+kegg.fgsea <- fgsea(pathways = KEGG.lol, stats = deg.scores, scoreType = "pos")
+kegg.fgsea[,
+           topGenes := paste0(head(unlist(`leadingEdge`), 3), collapse=", "),
+           by = .(pathway)]
+
+kegg.fgsea %>%
+  arrange(pval) %>%
+  filter(pval < 0.1) %>% 
+  select(-leadingEdge) %>% 
+  knitr::kable()
+```
+
+QC and filtering on B16 dataset
+```{r}
+B16.seurat[["percent.mito"]] <- PercentageFeatureSet(B16.seurat, pattern = "^mt-")
+B16.seurat[["percent.ribo"]] <- PercentageFeatureSet(B16.seurat, pattern = "^Rp[ls]")
+VlnPlot(B16.seurat, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo"), ncol = 4, pt.size = 0.1)
+```
+
+Normalize and scale
+```{r}
+B16.seurat <- NormalizeData(B16.seurat)
+B16.seurat <- FindVariableFeatures(B16.seurat, selection.method = "vst", mean.cutoff = c(0.0125, 3), dispersion.cutoff = c(0.5, Inf))
+(top10 <- head(VariableFeatures(B16.seurat), 10))
+```
+
+```{r}
+length(B16.seurat@assays$RNA@var.features)
+B16.seurat@assays$RNA@var.features <-
+  B16.seurat@assays$RNA@var.features[!B16.seurat@assays$RNA@var.features %in% 
+                                        c(mito.genes,ribo.genes)]
+length(B16.seurat@assays$RNA@var.features)
+(top10 <- head(VariableFeatures(B16.seurat), 10))
+LabelPoints(plot = VariableFeaturePlot(B16.seurat), points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
+
+B16.seurat <- ScaleData(B16.seurat, assay = "RNA")
+```
+
+```{r}
+set.seed(123)
+B16.seurat <- dim_reductions(B16.seurat)
+VizDimLoadings(B16.seurat, dims = 1:9, reduction = "pca") + theme(axis.text = element_text(size=5),
+                                                                       axis.title = element_text(size=8, face="bold"))
+
+mat <- GetAssayData(B16.seurat, assay = "RNA", slot = "scale.data")
+pca <- B16.seurat[["pca"]]
+
+total_var <- sum(matrixStats::rowVars(mat))
+eigValues = (pca@stdev)^2
+(varExplained <- eigValues / total_var)
+ElbowPlot(B16.seurat)
+
+DimHeatmap(B16.seurat, dims = 1:6, nfeatures = 20, cells = 500, balanced = TRUE)
+```
+
+```{r}
+DimPlot(B16.seurat, reduction = "pca", group.by = "SampleLabel", dims = c(1,2), cols = alpha(my_cols, 0.5))
+```
+
+```{r}
+DimPlot(B16.seurat, reduction = "umap", group.by = "SampleLabel", dims = c(1,2), cols = alpha(my_cols, 0.5))
+```
+
+Combine datasets
+
+```{r}
+data.list <- c(CD8_hi.seurat, CD8_lo.seurat, B16.seurat)
+features <- SelectIntegrationFeatures(object.list = data.list, nfeatures = 10000)
+
+anchors <- FindIntegrationAnchors(data.list, anchor.features = features)
+
+combined <- IntegrateData(anchorset = anchors)
+DefaultAssay(combined) <- "RNA"
+```
+
+Let's just see what happens?
+```{r}
+combined[["percent.mito"]] <- PercentageFeatureSet(combined, pattern = "^mt-")
+combined[["percent.ribo"]] <- PercentageFeatureSet(combined, pattern = "^Rp[ls]")
+```
+
+```{r}
+VlnPlot(combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo"), ncol = 4, pt.size = 0.1, cols = alpha(my_cols, 0.5))
+```
+
+```{r}
+FeatureScatter(combined, feature1 = "nCount_RNA", feature2 = "percent.mito", cols = alpha(my_cols, 0.5))
+```
+```{r}
+FeatureScatter(combined, feature1 = "nCount_RNA", feature2 = "nFeature_RNA", cols = alpha(my_cols, 0.5))
+```
+```{r}
+FeatureScatter(combined, feature1 = "nCount_RNA", feature2 = "percent.ribo", cols = alpha(my_cols, 0.5))
+```
+```{r}
+FeatureScatter(combined, feature1 = "percent.mito", feature2 = "percent.ribo", cols = alpha(my_cols, 0.5))
+```
+
+Filter cells with high mito
+```{r}
+combined <- subset(combined, subset = percent.mito < 10)
+VlnPlot(combined, features = c("nFeature_RNA", "nCount_RNA", "percent.mito", "percent.ribo"), ncol = 4, pt.size = 0.1, cols = alpha(my_cols, 0.5))
+```
+
+Remove mitochondial and ribosomal genes
+
+```{r}
+mito.genes <- grep(pattern = "^mt-", x = rownames(x = combined@assays$RNA@data), value = TRUE)
+ribo.genes <- grep(pattern = "^Rp[ls]", x = rownames(x = combined@assays$RNA@data), value = TRUE)
+```
+
+```{r}
+DefaultAssay(combined) <- "integrated"
+combined <- FindVariableFeatures(combined, selection.method = "vst", nfeatures = 7500)
+(top10 <- head(VariableFeatures(combined), 10))
+length(combined@assays$integrated@var.features)
+combined@assays$integrated@var.features <-
+  combined@assays$integrated@var.features[!combined@assays$integrated@var.features %in% 
+                                        c(mito.genes,ribo.genes)]
+length(combined@assays$integrated@var.features)
+(top10 <- head(VariableFeatures(combined), 10))
+LabelPoints(plot = VariableFeaturePlot(combined), points = top10, repel = TRUE, xnudge = 0, ynudge = 0)
+```
+
+Scale data
+```{r}
+combined <- ScaleData(combined, assay = "integrated")
+```
+
+Run PCA and dimensionality reduction
+
+```{r}
+set.seed(123)
+combined <- dim_reductions(combined)
+VizDimLoadings(combined, dims = 1:9, reduction = "pca") + theme(axis.text = element_text(size=5),
+                                                                axis.title = element_text(size=8, face = "bold"))
+
+mat <- GetAssayData(combined, assay = "integrated", slot = "scale.data")
+pca <- combined[["pca"]]
+
+total_var <- sum(matrixStats::rowVars(mat))
+eigValues = (pca@stdev)^2
+(varExplained <- eigValues / total_var)
+ElbowPlot(combined)
+
+DimHeatmap(combined, dims = 1:6, nfeatures = 20, cells = 500, balanced = TRUE)
+```
+
+```{r}
+combined$SampleLabel <- factor(as.factor(combined$SampleLabel), levels = c("Control", "TGR", "PMEL1_S1", "PMEL2_S1", "PMEL3_S1", "WT1_S2", "WT2_S2", "WT3_S3", "WT4_S3"))
+DimPlot(combined, reduction = "pca", group.by = "SampleLabel", dims = c(1,2), cols = alpha(my_cols, 0.75))
+DimPlot(combined, reduction = "pca", dims = c(1,2), group.by = "orig.ident", cols = alpha(my_cols, 0.75))
+combined %>% subset(orig.ident == "met_cond") %>% DimPlot(reduction = "pca", group.by = "SampleLabel", cols = alpha(my_cols, 0.75))
+```
+
+UMAP
+
+```{r}
+DimPlot(combined, reduction = "umap", group.by = "SampleLabel", dims = c(1,2), cols = alpha(my_cols, 0.75))
+DimPlot(combined, reduction = "umap",  group.by = "orig.ident", dims = c(1,2), cols = alpha(my_cols, 0.75))
+```
+
+incorporate clusters
+```{r}
+pre.clusters <- read.csv(file.path("Data", B16_GEO, "cellClusters.csv"))
+pre.clusters.meta <- pre.clusters[match(substring(colnames(combined), 1, 18),pre.clusters$X),2]
+pre.clusters.meta <- factor(pre.clusters.meta, levels = c("Control", "TGR", "Naive", "EM-like", "MemoryLike", "Exhausted"))
+pre.clusters.meta[is.na(pre.clusters.meta)] <- combined@meta.data$SampleLabel[is.na(pre.clusters.meta)]
+names(pre.clusters.meta) <- colnames(combined)
+combined <- AddMetaData(combined,pre.clusters.meta,"cluster_label")
+```
+
+```{r}
+FeaturePlot(combined,features=genes_of_interest,reduction="umap", cols = alpha(c("blue", "red"), 0.25)) 
+```
+
+```{r}
+DimPlot(combined, group.by = "cluster_label", reduction = "pca", cols = alpha(my_cols, 0.5))
+DimPlot(combined, group.by = "cluster_label", reduction = "umap", cols = alpha(my_cols, 0.5))
+```
+
+```{r}
+combined %>% subset(subset = cluster_label != "TGR" & cluster_label != "Control") %>% DimPlot(group.by = "cluster_label", reduction = "umap", cols = alpha(my_cols, 0.5))
+combined %>% subset(subset = cluster_label != "Control") %>% DimPlot(group.by = "cluster_label", reduction = "umap", cols = alpha(my_cols, 0.5))
+combined %>% subset(subset = cluster_label != "TGR") %>% DimPlot(group.by = "cluster_label", reduction = "umap", cols = alpha(my_cols, 0.5))
+```
+
+```{r}
+DoHeatmap(combined, features = genes_of_interest, group.by = "cluster_label", raster=FALSE)
+```
+
+Cluster based on UMAP
+
+```{r}
+combined <- FindNeighbors(combined, reduction = "pca", dims = 1:10, k.param = 30)
+combined <- FindClusters(combined, resolution = 0.5)
+```
+
+```{r}
+DimPlot(combined, group.by = "seurat_clusters", reduction = "umap", cols = alpha(my_cols, 0.5))
+DimPlot(combined, group.by = "cluster_label", reduction = "umap", cols = alpha(my_cols, 0.5))
+```
+
+```{r}
+DoHeatmap(combined, features = genes_of_interest, group.by = c("seurat_clusters", "cluster_label"), raster=FALSE)
+```
+
+```{r}
+prop.table(table(combined$seurat_clusters, combined$cluster_label), margin = 1) %>% as.data.frame() %>% ggplot(aes(x = Var1, y = Freq, fill = Var2)) + geom_bar(stat = "identity") + xlab("Seurat Cluster") + labs(fill = "Sample Label")
+prop.table(table(combined$seurat_clusters, combined$cluster_label), margin = 2) %>% as.data.frame() %>% ggplot(aes(x = Var2, y = Freq, fill = Var1)) + geom_bar(stat = "identity") + labs(x = "Sample Label", fill = "Seurat Cluster")
+
+table(combined$seurat_clusters, combined$cluster_label) %>% as.data.frame() %>% ggplot(aes(x = Var1, y = Freq, fill = Var2)) + geom_bar(stat = "identity") + xlab("Seurat Cluster") + labs(fill = "Sample Label")
+table(combined$seurat_clusters, combined$cluster_label) %>% as.data.frame() %>% ggplot(aes(x = Var2, y = Freq, fill = Var1)) + geom_bar(stat = "identity") + xlab("Sample Label") + labs(fill = "Seurat Cluster")
+```
+
+```{r}
+cluster.2.markers <- FindMarkers(combined, ident.1 = 2)
+cluster.2.markers %>% filter(p_val_adj < 0.05) %>% arrange(desc(abs(avg_log2FC))) %>% head(20)
+cluster.2.deg <- cluster.2.markers %>% filter(p_val_adj < 0.05)
+```
+
+```{r}
+hyper.kegg.dt <- run.hyper.test(cluster.2.deg, KEGG.mouse.db, combined, cutoff = 0.05)
+hyper.kegg.dt %>%
+  arrange(p.val) %>%
+  filter(p.val < 0.05) %>% 
+  knitr::kable()
+```
+
+```{r}
+ggplot(cluster.2.markers, aes(1:nrow(cluster.2.markers), -log10(p_val_adj))) + 
+  geom_point(stroke = 0) + 
+  geom_hline(yintercept = 4, lty = 2, colour = "red") + 
+  geom_hline(yintercept = 32, lty = 2, colour = "green") +
+  geom_hline(yintercept = 64, lty = 2, colour = "blue") + 
+  scale_y_continuous("adjusted p-val", breaks = c(4,32,64), 
+                     labels = function(x) num.sci(10^(-x)))
+```
+
+```{r}
+deg.scores <- cluster.2.deg %>%
+  mutate(adj_p_val = p_val_adj + 1e-300) %>% 
+  mutate(v = -log10(adj_p_val)) %>% 
+  (function(.dt) {v <- .dt$v; names(v) <- rownames(.dt); v})
+```
+
+```{r}
+kegg.fgsea <- fgsea(pathways = KEGG.lol, stats = deg.scores, scoreType = "pos")
+kegg.fgsea[,
+           topGenes := paste0(head(unlist(`leadingEdge`), 3), collapse=", "),
+           by = .(pathway)]
+
+kegg.fgsea %>%
+  arrange(pval) %>%
+  filter(pval < 0.1) %>% 
+  select(-leadingEdge) %>% 
+  knitr::kable()
+```
+
+
