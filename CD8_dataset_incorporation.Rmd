@@ -238,8 +238,7 @@ met_cond.seurat %>% subset(subset = SampleLabel == "TGR") %>% FeaturePlot(featur
 DoHeatmap(met_cond.seurat, features = genes_of_interest, group.by = "SampleLabel", raster=FALSE)
 ```
 
-# TODO
-DEA on metabolically conditioned cells
+# DEA on metabolically conditioned cells
 
 ```{r}
 TGR.de.markers <- FindMarkers(met_cond.seurat, ident.1 = "Control", ident.2 = "TGR")
@@ -253,7 +252,7 @@ met_cond.seurat %>% subset(subset = SampleLabel == "Control") %>%  FeaturePlot(f
 met_cond.seurat %>% subset(subset = SampleLabel == "TGR") %>%  FeaturePlot(features = c("Cenpa", "Mt2", "2810417H13Rik"), cols = alpha(c("blue", "red"), 0.25), reduction = "umap")
 ```
 
-Hypergeometric GSEA
+## Hypergeometric GSEA
 
 ```{r include=FALSE}
 run.hyper.test <- function(gene.dt, geneset.dt, seurat.obj, cutoff = 0.05) {
@@ -303,7 +302,7 @@ hyper.kegg.dt %>%
   knitr::kable()
 ```
 
-Ranked GSEA
+## Ranked GSEA
 
 ```{r}
 num.sci <- function(x) {
@@ -405,7 +404,7 @@ DimPlot(B16.seurat, reduction = "pca", group.by = "SampleLabel", dims = c(1,2), 
 DimPlot(B16.seurat, reduction = "umap", group.by = "SampleLabel", dims = c(1,2), cols = alpha(my_cols, 0.5))
 ```
 
-Combine datasets
+# Combine datasets
 
 ```{r}
 data.list <- c(CD8_hi.seurat, CD8_lo.seurat, B16.seurat)
@@ -533,7 +532,7 @@ combined %>% subset(subset = cluster_label != "TGR") %>% DimPlot(group.by = "clu
 DoHeatmap(combined, features = genes_of_interest, group.by = "cluster_label", raster=FALSE)
 ```
 
-Cluster based on UMAP
+# Cluster
 
 ```{r}
 combined <- FindNeighbors(combined, reduction = "pca", dims = 1:10, k.param = 30)
@@ -557,11 +556,15 @@ table(combined$seurat_clusters, combined$cluster_label) %>% as.data.frame() %>% 
 table(combined$seurat_clusters, combined$cluster_label) %>% as.data.frame() %>% ggplot(aes(x = Var2, y = Freq, fill = Var1)) + geom_bar(stat = "identity") + xlab("Sample Label") + labs(fill = "Seurat Cluster")
 ```
 
+# Cluster 2 DEA and GSEA
+
 ```{r}
 cluster.2.markers <- FindMarkers(combined, ident.1 = 2)
 cluster.2.markers %>% filter(p_val_adj < 0.05) %>% arrange(desc(abs(avg_log2FC))) %>% head(20)
 cluster.2.deg <- cluster.2.markers %>% filter(p_val_adj < 0.05)
 ```
+
+## Hypergeometric GSEA
 
 ```{r}
 hyper.kegg.dt <- run.hyper.test(cluster.2.deg, KEGG.mouse.db, combined, cutoff = 0.05)
@@ -587,6 +590,8 @@ deg.scores <- cluster.2.deg %>%
   mutate(v = -log10(adj_p_val)) %>% 
   (function(.dt) {v <- .dt$v; names(v) <- rownames(.dt); v})
 ```
+
+## Ranked GSEA
 
 ```{r}
 kegg.fgsea <- fgsea(pathways = KEGG.lol, stats = deg.scores, scoreType = "pos")
