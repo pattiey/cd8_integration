@@ -2,7 +2,7 @@
 title: "CD8_dataset_incorporation"
 author: "pattiey"
 date: '2022-08-23'
-output: pdf_document
+output: github_document
 ---
 
 Load packages

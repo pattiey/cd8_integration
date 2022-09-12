@@ -414,26 +414,26 @@ met_cond.seurat <- dim_reductions(met_cond.seurat)
     ## To use Python UMAP via reticulate, set umap.method to 'umap-learn' and metric to 'correlation'
     ## This message will be shown once per session
 
-    ## 14:18:32 UMAP embedding parameters a = 0.9922 b = 1.112
+    ## 15:32:21 UMAP embedding parameters a = 0.9922 b = 1.112
 
-    ## 14:18:32 Read 5673 rows and found 10 numeric columns
+    ## 15:32:21 Read 5673 rows and found 10 numeric columns
 
-    ## 14:18:32 Using Annoy for neighbor search, n_neighbors = 30
+    ## 15:32:21 Using Annoy for neighbor search, n_neighbors = 30
 
-    ## 14:18:32 Building Annoy index with metric = cosine, n_trees = 50
+    ## 15:32:21 Building Annoy index with metric = cosine, n_trees = 50
 
     ## 0%   10   20   30   40   50   60   70   80   90   100%
 
     ## [----|----|----|----|----|----|----|----|----|----|
 
     ## **************************************************|
-    ## 14:18:33 Writing NN index file to temp file /var/folders/1f/5679s20d5gq3zmx40pr76lgc0000gp/T//RtmpRaRw3C/filea1de55efa1bb
-    ## 14:18:33 Searching Annoy index using 1 thread, search_k = 3000
-    ## 14:18:34 Annoy recall = 100%
-    ## 14:18:35 Commencing smooth kNN distance calibration using 1 thread with target n_neighbors = 30
-    ## 14:18:36 Initializing from normalized Laplacian + noise (using irlba)
-    ## 14:18:36 Commencing optimization for 500 epochs, with 232132 positive edges
-    ## 14:18:45 Optimization finished
+    ## 15:32:21 Writing NN index file to temp file /var/folders/1f/5679s20d5gq3zmx40pr76lgc0000gp/T//RtmpMTQjEX/filea87f63296b25
+    ## 15:32:21 Searching Annoy index using 1 thread, search_k = 3000
+    ## 15:32:23 Annoy recall = 100%
+    ## 15:32:24 Commencing smooth kNN distance calibration using 1 thread with target n_neighbors = 30
+    ## 15:32:25 Initializing from normalized Laplacian + noise (using irlba)
+    ## 15:32:25 Commencing optimization for 500 epochs, with 232132 positive edges
+    ## 15:32:34 Optimization finished
 
 ``` r
 VizDimLoadings(met_cond.seurat, dims = 1:9, reduction = "pca") + theme(axis.text = element_text(size=5),
@@ -524,9 +524,7 @@ DoHeatmap(met_cond.seurat, features = genes_of_interest, group.by = "SampleLabel
 
 ![](CD8_dataset_incorporation_files/figure-gfm/unnamed-chunk-23-1.png)<!-- -->
 
-# TODO
-
-DEA on metabolically conditioned cells
+# DEA on metabolically conditioned cells
 
 ``` r
 TGR.de.markers <- FindMarkers(met_cond.seurat, ident.1 = "Control", ident.2 = "TGR")
@@ -577,7 +575,7 @@ met_cond.seurat %>% subset(subset = SampleLabel == "TGR") %>%  FeaturePlot(featu
 
 ![](CD8_dataset_incorporation_files/figure-gfm/unnamed-chunk-25-3.png)<!-- -->
 
-Hypergeometric GSEA
+## Hypergeometric GSEA
 
 ``` r
 KEGG.mouse.db <- msigdbr(species = "mouse", category = "C2", subcategory = "KEGG")
@@ -615,7 +613,7 @@ hyper.kegg.dt %>%
 | KEGG_MATURITY_ONSET_DIABETES_OF_THE_YOUNG     |   1 |   0 | 2526 | 107 | 0.0423427 |
 | KEGG_PROTEASOME                               |  32 |   3 | 2495 | 107 | 0.0438685 |
 
-Ranked GSEA
+## Ranked GSEA
 
 ``` r
 num.sci <- function(x) {
@@ -759,26 +757,26 @@ B16.seurat <- dim_reductions(B16.seurat)
     ## Positive:  Lyz2, Apoe, Tyrobp, Fcer1g, Wfdc17, C1qb, Lgmn, Aif1, C1qc, C1qa 
     ## Negative:  Tox, Lag3, Pdcd1, Rgs16, Mmd, Tigit, Tnfrsf9, Pglyrp1, Sh2d2a, Klrc1
 
-    ## 14:19:40 UMAP embedding parameters a = 0.9922 b = 1.112
+    ## 15:33:33 UMAP embedding parameters a = 0.9922 b = 1.112
 
-    ## 14:19:40 Read 3574 rows and found 10 numeric columns
+    ## 15:33:33 Read 3574 rows and found 10 numeric columns
 
-    ## 14:19:40 Using Annoy for neighbor search, n_neighbors = 30
+    ## 15:33:33 Using Annoy for neighbor search, n_neighbors = 30
 
-    ## 14:19:40 Building Annoy index with metric = cosine, n_trees = 50
+    ## 15:33:33 Building Annoy index with metric = cosine, n_trees = 50
 
     ## 0%   10   20   30   40   50   60   70   80   90   100%
 
     ## [----|----|----|----|----|----|----|----|----|----|
 
     ## **************************************************|
-    ## 14:19:40 Writing NN index file to temp file /var/folders/1f/5679s20d5gq3zmx40pr76lgc0000gp/T//RtmpRaRw3C/filea1de41b793e0
-    ## 14:19:40 Searching Annoy index using 1 thread, search_k = 3000
-    ## 14:19:41 Annoy recall = 100%
-    ## 14:19:42 Commencing smooth kNN distance calibration using 1 thread with target n_neighbors = 30
-    ## 14:19:44 Initializing from normalized Laplacian + noise (using irlba)
-    ## 14:19:44 Commencing optimization for 500 epochs, with 142442 positive edges
-    ## 14:19:49 Optimization finished
+    ## 15:33:34 Writing NN index file to temp file /var/folders/1f/5679s20d5gq3zmx40pr76lgc0000gp/T//RtmpMTQjEX/filea87f1323ee68
+    ## 15:33:34 Searching Annoy index using 1 thread, search_k = 3000
+    ## 15:33:35 Annoy recall = 100%
+    ## 15:33:36 Commencing smooth kNN distance calibration using 1 thread with target n_neighbors = 30
+    ## 15:33:37 Initializing from normalized Laplacian + noise (using irlba)
+    ## 15:33:37 Commencing optimization for 500 epochs, with 142442 positive edges
+    ## 15:33:43 Optimization finished
 
 ``` r
 VizDimLoadings(B16.seurat, dims = 1:9, reduction = "pca") + theme(axis.text = element_text(size=5),
@@ -830,7 +828,7 @@ DimPlot(B16.seurat, reduction = "umap", group.by = "SampleLabel", dims = c(1,2),
 
 ![](CD8_dataset_incorporation_files/figure-gfm/unnamed-chunk-38-1.png)<!-- -->
 
-Combine datasets
+# Combine datasets
 
 ``` r
 data.list <- c(CD8_hi.seurat, CD8_lo.seurat, B16.seurat)
@@ -1055,26 +1053,26 @@ combined <- dim_reductions(combined)
     ## Positive:  Ctla2a, Mt1, Mt2, Pold4, Aldoa, Gapdh, Klrd1, Fam162a, Lag3, Eif1 
     ## Negative:  Crip1, Tmsb10, 2810417H13Rik, Pfn1, H2afz, Stmn1, Tmsb4x, Siva1, Dut, Ppia
 
-    ## 14:32:23 UMAP embedding parameters a = 0.9922 b = 1.112
+    ## 15:46:21 UMAP embedding parameters a = 0.9922 b = 1.112
 
-    ## 14:32:23 Read 9247 rows and found 10 numeric columns
+    ## 15:46:21 Read 9247 rows and found 10 numeric columns
 
-    ## 14:32:23 Using Annoy for neighbor search, n_neighbors = 30
+    ## 15:46:21 Using Annoy for neighbor search, n_neighbors = 30
 
-    ## 14:32:23 Building Annoy index with metric = cosine, n_trees = 50
+    ## 15:46:21 Building Annoy index with metric = cosine, n_trees = 50
 
     ## 0%   10   20   30   40   50   60   70   80   90   100%
 
     ## [----|----|----|----|----|----|----|----|----|----|
 
     ## **************************************************|
-    ## 14:32:24 Writing NN index file to temp file /var/folders/1f/5679s20d5gq3zmx40pr76lgc0000gp/T//RtmpRaRw3C/filea1de6e75501c
-    ## 14:32:24 Searching Annoy index using 1 thread, search_k = 3000
-    ## 14:32:27 Annoy recall = 100%
-    ## 14:32:28 Commencing smooth kNN distance calibration using 1 thread with target n_neighbors = 30
-    ## 14:32:30 Initializing from normalized Laplacian + noise (using irlba)
-    ## 14:32:30 Commencing optimization for 500 epochs, with 381516 positive edges
-    ## 14:32:44 Optimization finished
+    ## 15:46:22 Writing NN index file to temp file /var/folders/1f/5679s20d5gq3zmx40pr76lgc0000gp/T//RtmpMTQjEX/filea87f4debc80d
+    ## 15:46:22 Searching Annoy index using 1 thread, search_k = 3000
+    ## 15:46:25 Annoy recall = 100%
+    ## 15:46:26 Commencing smooth kNN distance calibration using 1 thread with target n_neighbors = 30
+    ## 15:46:28 Initializing from normalized Laplacian + noise (using irlba)
+    ## 15:46:28 Commencing optimization for 500 epochs, with 381516 positive edges
+    ## 15:46:43 Optimization finished
 
 ``` r
 VizDimLoadings(combined, dims = 1:9, reduction = "pca") + theme(axis.text = element_text(size=5),
@@ -1201,7 +1199,7 @@ DoHeatmap(combined, features = genes_of_interest, group.by = "cluster_label", ra
 
 ![](CD8_dataset_incorporation_files/figure-gfm/unnamed-chunk-57-1.png)<!-- -->
 
-Cluster based on UMAP
+# Cluster
 
 ``` r
 combined <- FindNeighbors(combined, reduction = "pca", dims = 1:10, k.param = 30)
@@ -1267,6 +1265,8 @@ table(combined$seurat_clusters, combined$cluster_label) %>% as.data.frame() %>% 
 
 ![](CD8_dataset_incorporation_files/figure-gfm/unnamed-chunk-61-4.png)<!-- -->
 
+# Cluster 2 DEA and GSEA
+
 ``` r
 cluster.2.markers <- FindMarkers(combined, ident.1 = 2)
 cluster.2.markers %>% filter(p_val_adj < 0.05) %>% arrange(desc(abs(avg_log2FC))) %>% head(20)
@@ -1297,6 +1297,8 @@ cluster.2.markers %>% filter(p_val_adj < 0.05) %>% arrange(desc(abs(avg_log2FC))
 ``` r
 cluster.2.deg <- cluster.2.markers %>% filter(p_val_adj < 0.05)
 ```
+
+## Hypergeometric GSEA
 
 ``` r
 hyper.kegg.dt <- run.hyper.test(cluster.2.deg, KEGG.mouse.db, combined, cutoff = 0.05)
@@ -1352,6 +1354,8 @@ deg.scores <- cluster.2.deg %>%
   mutate(v = -log10(adj_p_val)) %>% 
   (function(.dt) {v <- .dt$v; names(v) <- rownames(.dt); v})
 ```
+
+## Ranked GSEA
 
 ``` r
 kegg.fgsea <- fgsea(pathways = KEGG.lol, stats = deg.scores, scoreType = "pos")
